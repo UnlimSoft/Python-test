@@ -1,9 +1,8 @@
 import datetime as dt
-from typing import List, Optional, Literal
+from typing import List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import func
 
 from database import Session, City, User, Picnic, PicnicRegistration
 from external_requests import CheckCityExisting
@@ -41,23 +40,26 @@ def cities_list(q: List[str] = Query(description="Название города"
 
 
 @app.post('/users-list/', summary='')
-def users_list(filter_age: Optional[Literal["min", "max"]] = Query(description="Фильтрация пользователей по возрасту",
-                                                                   default=None)):
+def users_list(min_age: Optional[int] = Query(description="Минимальный возраст", default=None, gt=0),
+               max_age: Optional[int] = Query(description="Максимальный возраст", default=None)):
     """
     Список пользователей
     """
-    if not filter_age:
-        users = Session().query(User).all()
-    else:
-        s = Session()
-        subquery = s.query(getattr(func, filter_age)(User.age)).scalar_subquery()
-        users = s.query(User).filter(User.age == subquery)
+
+    min_age, max_age = min(min_age, max_age), max(min_age, max_age)  # гарантируем, что min_age <= max_age
+    
+    users = Session().query(User)
+    if min_age:
+        users = users.filter(User.age >= min_age)
+    if max_age:
+        users = users.filter(User.age <= max_age)
+
     return [{
         'id': user.id,
         'name': user.name,
         'surname': user.surname,
         'age': user.age,
-    } for user in users]
+    } for user in users.all()]
 
 
 @app.post('/register-user/', summary='CreateUser', response_model=UserModel)
