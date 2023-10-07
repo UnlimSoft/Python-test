@@ -1,7 +1,12 @@
 import datetime as dt
+from typing import List, Optional, Literal
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from database import engine, Session, Base, City, User, Picnic, PicnicRegistration
-from external_requests import CheckCityExisting, GetWeatherRequest
+from sqlalchemy import func
+
+from database import Session, City, User, Picnic, PicnicRegistration
+from external_requests import CheckCityExisting
 from models import RegisterUserRequest, UserModel
 
 app = FastAPI()
@@ -26,21 +31,27 @@ def create_city(city: str = Query(description="Название города", d
 
 
 @app.post('/get-cities/', summary='Get Cities')
-def cities_list(q: str = Query(description="Название города", default=None)):
+def cities_list(q: List[str] = Query(description="Название города", default=None)):
     """
-    Получение списка городов
+    Получение списка существующих городов. Если город отсутствует, то он будет проигнорирован
     """
-    cities = Session().query(City).all()
+    cities = Session().query(City).filter(City.name.in_(q))
 
     return [{'id': city.id, 'name': city.name, 'weather': city.weather} for city in cities]
 
 
 @app.post('/users-list/', summary='')
-def users_list():
+def users_list(filter_age: Optional[Literal["min", "max"]] = Query(description="Фильтрация пользователей по возрасту",
+                                                                   default=None)):
     """
     Список пользователей
     """
-    users = Session().query(User).all()
+    if not filter_age:
+        users = Session().query(User).all()
+    else:
+        s = Session()
+        subquery = s.query(getattr(func, filter_age)(User.age)).scalar_subquery()
+        users = s.query(User).filter(User.age == subquery)
     return [{
         'id': user.id,
         'name': user.name,
@@ -91,24 +102,59 @@ def all_picnics(datetime: dt.datetime = Query(default=None, description='Вре�
 
 @app.get('/picnic-add/', summary='Picnic Add', tags=['picnic'])
 def picnic_add(city_id: int = None, datetime: dt.datetime = None):
-    p = Picnic(city_id=city_id, time=datetime)
-    s = Session()
-    s.add(p)
-    s.commit()
+    """
+    Создет новый пикник в заданном городе
+    """
 
-    return {
-        'id': p.id,
-        'city': Session().query(City).filter(City.id == p.id).first().name,
-        'time': p.time,
-    }
+    with Session() as s:
+        subquery = s.query(City.id).filter(City.id == city_id)
+        if not s.query(subquery.exists()).scalar():
+            raise HTTPException(400, 'Города с заданным city_id не существует')
+
+        p = Picnic(city_id=city_id, time=datetime)
+        s.add(p)
+        s.commit()
+
+        return {
+            'id': p.id,
+            'city': p.city.name,
+            'time': p.time,
+        }
 
 
 @app.get('/picnic-register/', summary='Picnic Registration', tags=['picnic'])
-def register_to_picnic(*_, **__,):
+def register_to_picnic(user_id: int,
+                       picnic_id: int):
     """
     Регистрация пользователя на пикник
-    (Этот эндпойнт необходимо реализовать в процессе выполнения тестового задания)
     """
-    # TODO: Сделать логику
-    return ...
+    with Session() as s:
+        subquery = s.query(User.id).filter(User.id == user_id)
+        if not s.query(subquery.exists()).scalar():
+            raise HTTPException(400, 'Пользователя с заданным user_id не существует')
 
+        subquery = s.query(Picnic.id).filter(Picnic.id == user_id)
+        if not s.query(subquery.exists()).scalar():
+            raise HTTPException(400, 'Пикника с заданным picnic_id не существует')
+
+        picnic_registration_obj = PicnicRegistration(user_id=user_id,
+                                                     picnic_id=picnic_id)
+        s.add(picnic_registration_obj)
+        s.commit()
+
+        return {
+            'id': picnic_registration_obj.id,
+            'picnic': {
+                'city': picnic_registration_obj.picnic.city.name,
+                'time': picnic_registration_obj.picnic.time,
+            },
+            'user': {
+                'name': picnic_registration_obj.user.name,
+                'surname': picnic_registration_obj.user.surname,
+                'age': picnic_registration_obj.user.age,
+            }
+        }
+
+
+if __name__ == '__main__':
+    uvicorn.run(app, port=8000, host='127.0.0.1')

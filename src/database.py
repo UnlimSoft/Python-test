@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+
 from external_requests import GetWeatherRequest
 
 # Создание сессии
@@ -58,6 +59,8 @@ class Picnic(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     city_id = Column(Integer, ForeignKey('city.id'), nullable=False)
     time = Column(DateTime, nullable=False)
+
+    city = relationship('City', backref='picnics')
 
     def __repr__(self):
         return f'<Пикник {self.id}>'
