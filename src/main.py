@@ -5,7 +5,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 
 from database import Session, City, User, Picnic, PicnicRegistration
-from external_requests import CheckCityExisting
+
+from utils import weather_api
 from models import RegisterUserRequest, UserModel
 
 app = FastAPI()
@@ -15,8 +16,7 @@ app = FastAPI()
 def create_city(city: str = Query(description="Название города", default=None)):
     if city is None:
         raise HTTPException(status_code=400, detail='Параметр city должен быть указан')
-    check = CheckCityExisting()
-    if not check.check_existing(city):
+    if not weather_api.check_city(city):
         raise HTTPException(status_code=400, detail='Параметр city должен быть существующим городом')
 
     city_object = Session().query(City).filter(City.name == city.capitalize()).first()
