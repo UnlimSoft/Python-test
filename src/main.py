@@ -1,13 +1,14 @@
 import datetime as dt
 from typing import List, Optional
+import json
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
+from sqlalchemy import case, func
 
 from database import Session, City, User, Picnic, PicnicRegistration
-
-from utils import weather_api
 from models import RegisterUserRequest, UserModel
+from utils import weather_api
 
 app = FastAPI()
 
@@ -47,7 +48,7 @@ def users_list(min_age: Optional[int] = Query(description="Минимальны�
     """
 
     min_age, max_age = min(min_age, max_age), max(min_age, max_age)  # гарантируем, что min_age <= max_age
-    
+
     users = Session().query(User)
     if min_age:
         users = users.filter(User.age >= min_age)
@@ -81,25 +82,33 @@ def all_picnics(datetime: dt.datetime = Query(default=None, description='Вре�
     """
     Список всех пикников
     """
-    picnics = Session().query(Picnic)
-    if datetime is not None:
-        picnics = picnics.filter(Picnic.time == datetime)
-    if not past:
-        picnics = picnics.filter(Picnic.time >= dt.datetime.now())
+    with Session() as session:
 
-    return [{
-        'id': pic.id,
-        'city': Session().query(City).filter(City.id == pic.id).first().name,
-        'time': pic.time,
-        'users': [
-            {
-                'id': pr.user.id,
-                'name': pr.user.name,
-                'surname': pr.user.surname,
-                'age': pr.user.age,
-            }
-            for pr in Session().query(PicnicRegistration).filter(PicnicRegistration.picnic_id == pic.id)],
-    } for pic in picnics]
+        # довольно страшный кусок кода, генерящий один SQL запрос для всего (почти) сразу:
+        # - джоинит все нужные таблицы
+        # - генерит жсон с юзером, если он есть в таблице (иначе NULL)
+        # - склеивает все жсоны групповой функцией, чтобы потом их не клеить питоном (в идеале бы складывать в массив, но не все диалекты поддерживают это)
+        picnics = session.query(Picnic,
+                                func.group_concat(case((User.id.is_not(None), func.json_object('id', User.id,
+                                                                                               'name', User.name,
+                                                                                               'surname', User.surname,
+                                                                                               'age', User.age)),
+                                                       else_=None)))
+
+        if datetime is not None:
+            picnics = picnics.filter(Picnic.time == datetime)
+        if not past:
+            picnics = picnics.filter(Picnic.time >= dt.datetime.now())
+        picnics = (picnics.outerjoin(PicnicRegistration, Picnic.id == PicnicRegistration.picnic_id)
+                   .outerjoin(User, PicnicRegistration.user_id == User.id)).group_by(Picnic.id)
+        session.commit()
+
+        return [{
+            'id': pic.id,
+            'city': pic.city.name,
+            'time': pic.time,
+            'users': json.loads('[' + users + ']') if users else [],
+        } for pic, users in picnics]
 
 
 @app.get('/picnic-add/', summary='Picnic Add', tags=['picnic'])
@@ -135,7 +144,7 @@ def register_to_picnic(user_id: int,
         if not s.query(subquery.exists()).scalar():
             raise HTTPException(400, 'Пользователя с заданным user_id не существует')
 
-        subquery = s.query(Picnic.id).filter(Picnic.id == user_id)
+        subquery = s.query(Picnic.id).filter(Picnic.id == picnic_id)
         if not s.query(subquery.exists()).scalar():
             raise HTTPException(400, 'Пикника с заданным picnic_id не существует')
 
