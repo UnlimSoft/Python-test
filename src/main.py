@@ -4,9 +4,9 @@ import json
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import case, func
+from sqlalchemy import func
 
-from database import Session, City, User, Picnic, PicnicRegistration
+from db.database import Session, City, User, Picnic, PicnicRegistration
 from models import RegisterUserRequest, UserModel
 from utils import weather_api
 
@@ -84,31 +84,28 @@ def all_picnics(datetime: dt.datetime = Query(default=None, description='Вре�
     """
     with Session() as session:
 
-        # довольно страшный кусок кода, генерящий один SQL запрос для всего (почти) сразу:
-        # - джоинит все нужные таблицы
-        # - генерит жсон с юзером, если он есть в таблице (иначе NULL)
-        # - склеивает все жсоны групповой функцией, чтобы потом их не клеить питоном (в идеале бы складывать в массив, но не все диалекты поддерживают это)
-        picnics = session.query(Picnic,
-                                func.group_concat(case((User.id.is_not(None), func.json_object('id', User.id,
-                                                                                               'name', User.name,
-                                                                                               'surname', User.surname,
-                                                                                               'age', User.age)),
-                                                       else_=None)))
+        picnics = session.query(Picnic, User)
 
         if datetime is not None:
             picnics = picnics.filter(Picnic.time == datetime)
         if not past:
             picnics = picnics.filter(Picnic.time >= dt.datetime.now())
         picnics = (picnics.outerjoin(PicnicRegistration, Picnic.id == PicnicRegistration.picnic_id)
-                   .outerjoin(User, PicnicRegistration.user_id == User.id)).group_by(Picnic.id)
+                   .outerjoin(User, PicnicRegistration.user_id == User.id))
         session.commit()
+
+        return_dict = dict()
+        for pic, user in picnics:
+            return_dict.setdefault(pic, [])
+            if user:
+                return_dict[pic].append(user)
 
         return [{
             'id': pic.id,
             'city': pic.city.name,
             'time': pic.time,
-            'users': json.loads('[' + users + ']') if users else [],
-        } for pic, users in picnics]
+            'users': users,
+        } for pic, users in return_dict.items()]
 
 
 @app.get('/picnic-add/', summary='Picnic Add', tags=['picnic'])

@@ -1,6 +1,6 @@
 import os
 
-from external_requests import WeatherAPI
+from .external_requests import WeatherAPI
 
 __all__ = ["weather_api"]
 
