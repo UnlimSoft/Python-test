@@ -6,12 +6,12 @@ class RegisterUserRequest(BaseModel):
     surname: str
     age: int
 
+    class Config:
+        orm_mode = True
 
-class UserModel(BaseModel):
+
+class UserModel(RegisterUserRequest):
     id: int
-    name: str
-    surname: str
-    age: int
 
     class Config:
         orm_mode = True

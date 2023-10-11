@@ -28,7 +28,7 @@
      - Архитектуру и пути обращения к эндпойнтам
   2. Расписать все входные/выходные поля в документации (`/redoc/` или `/docs/`), описав их классами
   3. Результат оптимизации можно посмотреть в коммите [35c130c](https://github.com/TheRealMizAL/Python-test/commit/35c130cf96e07a5e3bb60e1a29b93dcbf2113005)
-  4. Сменить базу данных с SQLite на PostgreSQL
+  4. Результат изменения можно посмотреть в коммите [4743c08](https://github.com/TheRealMizAL/Python-test/commit/4743c08b12542b7e15a8701a9af36c66af380030)
   5. Результат рефакторинга можно посмотреть в коммите [eed40f6](https://github.com/TheRealMizAL/Python-test/commit/eed40f682878463cd319037429e94bb0749ca46c)
   6. Написать тесты
 
